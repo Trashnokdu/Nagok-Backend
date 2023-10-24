@@ -45,9 +45,10 @@ server.on('listening', onListening);
 /**
  * Normalize a port into a number, string, or false.
  */
+var NowSong = ""
 var Isopen = false
-var votename = '후보1'
-var votenumber = 1;
+var votename = ''
+var votenumber = 0;
 var Isvote = false;
 var endevent = false;
 function normalizePort(val) {
@@ -72,11 +73,12 @@ io.on('connection', (socket) => {
   }
   // Emit voting results immediately when a new client connects
   io.emit("endevent", endevent)
+  io.emit("Voteopen", Isopen)
   io.emit("Isvoting", Isvote)
   io.emit("Votenumber", votenumber)
   io.emit("Votename", votename)
-  io.emit("Voteopen", Isopen)
   emitVotingResults();
+  emitNowSong(votenumber)
   socket.on('forcevote', (data) => {
     db.run(`INSERT INTO Vote(choice) VALUES(?)`, [data.choice], function(err) {
       if (err) {
@@ -97,67 +99,102 @@ socket.on('closevote', (data) => {
   Isopen = false
   io.emit("Voteopen", Isopen)
 });
-  socket.on('setvote', (number) => {
-    votenumber = number
-    io.emit("Votenumber", votenumber)
-  });
-  socket.on('setname', (name) => {
-    votename = name
-    io.emit("Votename", votename)
-  });
-    socket.on('endvote', (data) => {
-        Isvote = false
-        io.emit("Isvoting", Isvote)
-  });
-  socket.on('endevent', (data) => {
-    console.log(1)
-    endevent = true
-    io.emit("endevent", true)
-});
-  socket.on("Isvoting", (data) => {
-    setIsVoting(data);
-  });
-  socket.on("Ifvoting", () => {
-    io.emit("Isvoting", Isvote)
-  })
-  socket.on("reset", () => {
-    db.run(`delete from Vote`, function(err) {
-      if (err) {
-        return console.error(err.message);
+socket.on('setvote', (number) => {
+  votenumber = number
+  db.get('SELECT * from Singer Where Number=?', [number], (err, row) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      if(row){
+        votename = row.Name
+        io.emit("Votename", votename)
+        emitNowSong(votenumber)
       }
-      emitVotingResults();
-    });
-  })
-  socket.on('', (data) => {
-    db.run(`INSERT INTO Vote(Ip, choice) VALUES(?, ?)`, [data.ip, data.choice], function(err) {
-      if (err) {
-        return console.error(err.message);
+      else{
+        votename = ""
+        io.emit("Votename", votename)
+        emitNowSong(votenumber)
       }
-      emitVotingResults();
-    })
-  });
-  // When a vote is casted, update and emit voting results
-  socket.on('vote', (data) => {
-    if(!Isvote){
-      return socket.emit("error", {message: "Voting is not Starting"})
     }
-    db.run(`INSERT INTO Vote(choice) VALUES(?)`, [votenumber], function(err) {
-      if (err) {
-        return console.error(err.message);
-      }
-      emitVotingResults();
-    });
-  });
-  socket.on('getSinger', () => {
-    db.all('SELECT * from Singer', (err, rows) => {
-      console.log(rows)
-    })
   })
-  socket.on('disconnect', () => {
-     console.log('Client disconnected');
+  io.emit("Votenumber", votenumber)
+});
+socket.on('endvote', (data) => {
+      Isvote = false
+      io.emit("Isvoting", Isvote)
+});
+socket.on('endevent', (data) => {
+  console.log(1)
+  endevent = true
+  io.emit("endevent", true)
+});
+socket.on("Isvoting", (data) => {
+  setIsVoting(data);
+});
+socket.on("Ifvoting", () => {
+  io.emit("Isvoting", Isvote)
+})
+socket.on("reset", () => {
+  db.run(`delete from Vote`, function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
+  });
+})
+socket.on('', (data) => {
+  db.run(`INSERT INTO Vote(Ip, choice) VALUES(?, ?)`, [data.ip, data.choice], function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
+  })
+});
+// When a vote is casted, update and emit voting results
+socket.on('vote', (data) => {
+  if(!Isvote){
+    return socket.emit("error", {message: "Voting is not Starting"})
+  }
+  db.run(`INSERT INTO Vote(choice) VALUES(?)`, [votenumber], function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
   });
 });
-
+socket.on('getSinger', () => {
+  db.all('SELECT * from Singer', (err, rows) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      socket.emit('singerData', rows);
+    }
+  })
+})
+socket.on('disconnect', () => {
+   console.log('Client disconnected');
+});
+});
+function emitNowSong(number){
+  db.get('SELECT * from Singer Where Number=?', [number], (err, row) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      if(row){
+        console.log(row.Song)
+        NowSong = row.Song
+        io.emit("NowSong", NowSong)
+      }
+      else{
+        NowSong = ""
+        io.emit("NowSong", NowSong)
+      }
+    }
+  })
+}
 function emitVotingResults() {
   const allChoices = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']; // 모든 가능한 선택지
  
