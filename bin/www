@@ -184,7 +184,6 @@ function emitNowSong(number){
     } 
     else { 
       if(row){
-        console.log(row.Song)
         NowSong = row.Song
         io.emit("NowSong", NowSong)
       }
