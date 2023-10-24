@@ -7,7 +7,7 @@ var socketIo = require('socket.io');
 var app = require('../app');
 const fs = require('fs');
 var debug = require('debug')('nagok-vote:server');
-var http = require('http');
+var http = require('https');
 const sqlite3 = require('sqlite3').verbose();
 let db = new sqlite3.Database('./db/db.db')
 
@@ -27,7 +27,7 @@ const options = {
  * Create HTTP server.
  */
 
-var server = http.createServer(app);
+var server = http.createServer(options, app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
