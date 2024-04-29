@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+var socketIo = require('socket.io');
+var app = require('../app');
+const fs = require('fs');
+var debug = require('debug')('nagok-vote:server');
+var http = require('https');
+const sqlite3 = require('sqlite3').verbose();
+let db = new sqlite3.Database('./db/db.db')
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+const options = {
+};
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(options, app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+var NowSong = ""
+var Isopen = false
+var votename = ''
+var votenumber = 0;
+var Isvote = false;
+var endevent = false;
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+io.on('connection', (socket) => {
+  console.log('New client connected');
+  if (!Isvote) {
+    socket.emit("redirect");
+  }
+  // Emit voting results immediately when a new client connects
+  io.emit("endevent", endevent)
+  io.emit("Voteopen", Isopen)
+  io.emit("Isvoting", Isvote)
+  io.emit("Votenumber", votenumber)
+  io.emit("Votename", votename)
+  emitVotingResults();
+  emitNowSong(votenumber)
+  socket.on('forcevote', (data) => {
+    db.run(`INSERT INTO Vote(choice) VALUES(?)`, [data.choice], function(err) {
+      if (err) {
+        return console.error(err.message);
+      }
+      emitVotingResults();
+    })
+  });
+  socket.on('startvote', (data) => {
+      Isvote = true
+      io.emit("Isvoting", Isvote)
+  });
+  socket.on('openvote', (data) => {
+    Isopen = true
+    io.emit("Voteopen", Isopen)
+});
+socket.on('closevote', (data) => {
+  Isopen = false
+  io.emit("Voteopen", Isopen)
+});
+socket.on('setvote', (number) => {
+  votenumber = number
+  db.get('SELECT * from Singer Where Number=?', [number], (err, row) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      if(row){
+        votename = row.Name
+        io.emit("Votename", votename)
+        emitNowSong(votenumber)
+      }
+      else{
+        votename = ""
+        io.emit("Votename", votename)
+        emitNowSong(votenumber)
+      }
+    }
+  })
+  io.emit("Votenumber", votenumber)
+});
+socket.on('endvote', (data) => {
+      Isvote = false
+      io.emit("Isvoting", Isvote)
+});
+socket.on('endevent', (data) => {
+  console.log(1)
+  endevent = true
+  io.emit("endevent", true)
+});
+socket.on("Isvoting", (data) => {
+  setIsVoting(data);
+});
+socket.on("Ifvoting", () => {
+  io.emit("Isvoting", Isvote)
+})
+socket.on("reset", () => {
+  db.run(`delete from Vote`, function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
+  });
+})
+socket.on('', (data) => {
+  db.run(`INSERT INTO Vote(Ip, choice) VALUES(?, ?)`, [data.ip, data.choice], function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
+  })
+});
+// When a vote is casted, update and emit voting results
+socket.on('vote', (data) => {
+  if(!Isvote){
+    return socket.emit("error", {message: "Voting is not Starting"})
+  }
+  db.run(`INSERT INTO Vote(choice) VALUES(?)`, [votenumber], function(err) {
+    if (err) {
+      return console.error(err.message);
+    }
+    emitVotingResults();
+  });
+});
+socket.on('getSinger', () => {
+  db.all('SELECT * from Singer', (err, rows) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      socket.emit('singerData', rows);
+    }
+  })
+})
+socket.on('disconnect', () => {
+   console.log('Client disconnected');
+});
+});
+function emitNowSong(number){
+  db.get('SELECT * from Singer Where Number=?', [number], (err, row) => {
+    if (err) {
+      throw err;
+    } 
+    else { 
+      if(row){
+        NowSong = row.Song
+        io.emit("NowSong", NowSong)
+      }
+      else{
+        NowSong = ""
+        io.emit("NowSong", NowSong)
+      }
+    }
+  })
+}
+function emitVotingResults() {
+  const allChoices = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']; // 모든 가능한 선택지
+ 
+  db.all(`SELECT choice, COUNT(*) as count FROM Vote GROUP BY choice`, (err, rows) => {
+    if (err) {
+      throw err;
+    } else { 
+      // 먼저 모든 가능한 선택지에 대해 기본값을 설정합니다.
+      const results = {};
+      for(let i = 0; i < allChoices.length; i++) {
+        results['choice' + allChoices[i]] = 0;
+      }
+ 
+      // 그런 다음 데이터베이스에서 반환된 행들을 순회하여 실제 투표 수를 업데이트합니다.
+      for(let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        results['choice' + row.choice] = row.count;
+      }
+      
+      io.emit("voting-results", results);
+    }
+  });
+ }
+ 
+ 
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
